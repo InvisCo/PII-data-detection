@@ -9,27 +9,36 @@ INPUT_FOLDER = Path(__file__).parent.parent / "raw_data"
 OUTPUT_FOLDER = Path(__file__).parent / "data"
 
 
-def process_train_data(input_file: Path, output_folder: Path, split_ratio: float = 0.8):
+def process_data(input_file: Path, output_folder: Path):
+    print(f"Processing data from {input_file.name} ...")
+
     # Create a blank model for the English language
     nlp = spacy.blank("en")
     # Create DocBin objects to store the processed documents
     train_bin = DocBin()
     valid_bin = DocBin()
+    test_bin = DocBin()
 
     with input_file.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
     random.shuffle(data)
     # Limit the number of documents for testing
-    data = data[:100]
+    data = data[:200]
 
-    # Split the data into training and validation sets
-    split_index = int(len(data) * split_ratio)
-    train_data = data[:split_index]
-    valid_data = data[split_index:]
+    # Split the data into training, validation and test sets
+    train_split_index = int(len(data) * 0.7)
+    test_split_index = int(len(data) * 0.9)
+    train_data = data[:train_split_index]
+    valid_data = data[train_split_index:test_split_index]
+    test_data = data[test_split_index:]
 
     # Process each document and add it to the appropriate DocBin
-    for data, doc_bin in [(train_data, train_bin), (valid_data, valid_bin)]:
+    for data, doc_bin in [
+        (train_data, train_bin),
+        (valid_data, valid_bin),
+        (test_data, test_bin),
+    ]:
         for document in data:
             text = ""
             current_pos = 0
@@ -90,31 +99,11 @@ def process_train_data(input_file: Path, output_folder: Path, split_ratio: float
     # Save the DocBins to disk
     train_bin.to_disk(output_folder / "train.spacy")
     valid_bin.to_disk(output_folder / "valid.spacy")
+    test_bin.to_disk(output_folder / "test.spacy")
 
-    print(
-        f"Processed {len(train_bin)} training and {len(valid_bin)} validation documents."
-    )
-
-
-def process_test_data(input_file: Path, output_file: Path):
-    # Create a blank model for the English language
-    nlp = spacy.blank("en")
-    doc_bin = DocBin()
-
-    with input_file.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    for document in data:
-        # Create a Doc object from the complete text and add it to the DocBin
-        doc_bin.add(nlp.make_doc(document["full_text"]))
-
-    # Save the DocBin to disk
-    doc_bin.to_disk(output_file)
-
-    print(f"Processed {len(doc_bin)} documents.")
+    print(f"Processed {len(train_bin) + len(valid_bin) + len(test_bin)} documents.")
 
 
 if __name__ == "__main__":
     random.seed(546)
-    process_train_data(INPUT_FOLDER / "train.json", OUTPUT_FOLDER)
-    process_test_data(INPUT_FOLDER / "test.json", OUTPUT_FOLDER / "test.spacy")
+    process_data(INPUT_FOLDER / "train.json", OUTPUT_FOLDER)
