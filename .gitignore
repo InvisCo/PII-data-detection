@@ -1,3 +1,4 @@
 raw_data/
 GoogleNews-vectors-negative300.bin.gz
 .vscode/
+Model 4 - spaCy NER/data/
