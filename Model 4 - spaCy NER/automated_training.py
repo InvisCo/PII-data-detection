@@ -1,27 +1,33 @@
+import bisect
 import functools
+import math
+import random
 import time
 from pathlib import Path
 from typing import Any
 
 import spacy
+from spacy.cli.train import train
 from spacy.scorer import Scorer
 from spacy.tokens import DocBin
 from spacy.training import Example
-from spacy.cli.train import train
-
 
 OUTPUT_DIR = Path("./output/")
 CONFIG = Path("./config.cfg")
 TRAINED_MODEL_DIR = Path("./trained_models/")
 TEST_DATA = Path("./data/test.spacy")
 RESULTS = Path("./Training-Results.md")
+# Store results for all models
+ALL_RESULTS = []
 
 # ----------------------------- HYPERPARAMETER TUNING -----------------------------
 
 # Maximum number of training sessions to run
-MAX_TRAINING_SESSIONS = 2
+MAX_TRAINING_SESSIONS = 50
 # The factor of the total range by which to increment the hyperparameters
-HYPERPARAMETER_INCREMENT_FACTOR = 0.1
+HYPERPARAMETER_INCREMENT_FACTOR = 0.2
+# Floats are rounded to 4 decimal places to avoid floating point errors
+HYPERPARAMETER_PRECISION = 4
 # Hyperparameter (lower bound, upper bound)
 HYPERPARAMETER_LIMITS = {
     "optimizer_learn_rate": (0.0001, 0.01),
@@ -117,33 +123,70 @@ def train_model(hyperparameters: dict[str, float | int]):
 
 
 def update_hyperparameters(
-    hyperparameters: dict[str, float | int]
+    best_hyperparameters: dict[str, float | int], exploration_rate=0.1
 ) -> dict[str, float | int]:
-    """Updates the hyperparameters for the next training session, adjusting only one parameter at a time."""
+    """Updates the hyperparameters for the next training session, adjusting based on the best-performing set.
 
+    Args:
+        best_hyperparameters (dict): The best set of hyperparameters found so far.
+        exploration_rate (float): The rate at which to introduce randomness in the selection of the next hyperparameters.
+
+    Returns:
+        dict[str, float | int]: The new set of hyperparameters for the next training session.
+    """
     # Clone the original hyperparameters to avoid side-effects
-    new_hyperparameters = hyperparameters.copy()
+    new_hyperparameters = best_hyperparameters.copy()
 
-    for key in HYPERPARAMETER_UPDATE_ORDER:
-        current_value = hyperparameters[key]
+    # Randomly decide whether to explore or exploit
+    if random.random() < exploration_rate:
+        # Explore: Randomly select a hyperparameter to adjust
+        key = random.choice(HYPERPARAMETER_UPDATE_ORDER)
+
         lower_bound, upper_bound = HYPERPARAMETER_LIMITS[key]
-
-        # Calculate the increment
+        # Randomly increment or decrement the hyperparameter by a value within the range
         increment = (upper_bound - lower_bound) * HYPERPARAMETER_INCREMENT_FACTOR
-        new_value = current_value + increment
+        new_value = new_hyperparameters[key] + random.uniform(-increment, increment)
 
-        # Ensure the new value does not exceed the upper bound
-        if new_value > upper_bound:
-            new_value = upper_bound
+        new_hyperparameters[key] = round(
+            max(min(new_value, upper_bound), lower_bound),
+            HYPERPARAMETER_PRECISION,
+        )
+        print(f"Exploring {key}: {new_hyperparameters[key]}")
+    else:
+        # Exploit: Sequentially adjust hyperparameters based on performance
+        for key in HYPERPARAMETER_UPDATE_ORDER:
+            lower_bound, upper_bound = HYPERPARAMETER_LIMITS[key]
+            # Randomly increment or decrement the hyperparameter
+            increment = (
+                (upper_bound - lower_bound)
+                * random.choice([1, -1])
+                * HYPERPARAMETER_INCREMENT_FACTOR
+            )
+            new_value = round(
+                new_hyperparameters[key] + increment,
+                HYPERPARAMETER_PRECISION,
+            )
 
-        # Update the hyperparameter if it has not reached its upper bound
-        if current_value < upper_bound:
+            if new_value > upper_bound or new_value < lower_bound:
+                continue
+
             new_hyperparameters[key] = new_value
-            print(f"Updated {key} from {current_value} to {new_value}")
-            # Stop loop once the first eligible hyperparameter is updated
+            print(f"Exploiting {key}: {new_hyperparameters[key]}")
             break
 
     return new_hyperparameters
+
+
+@functools.cache
+def check_if_hyperparameters_used(hyperparameters: dict[str, float | int]) -> bool:
+    """Checks if the hyperparameters have been used in a previous training session."""
+    return any(
+        all(
+            math.isclose(hyperparameters[k], v)
+            for k, v in result["hyperparameters"].items()
+        )
+        for result in ALL_RESULTS
+    )
 
 
 def evaluate_model(model: Path, test_data: DocBin) -> dict[str, float]:
@@ -178,7 +221,7 @@ def save_scores(
     training_time: str,
     scores: dict[str, float],
     hyperparameters: dict[str, float | int],
-) -> dict[str, dict[str, float | int]]:
+) -> dict[str, Any]:
     """Saves the scores and hyperparameters for the model to the results file, and returns the score and hyperparameters."""
     with RESULTS.open("a", encoding="UTF-8") as f:
         f.write(f"| [{name}]({TRAINED_MODEL_DIR}{model.name}) ")
@@ -198,11 +241,24 @@ def save_scores(
 
 
 def main():
-    # Start hyperparameters at lower bounds
-    hyperparameters = {key: value[0] for key, value in HYPERPARAMETER_LIMITS.items()}
+    # Default hyperparameters
+    hyperparameters = {
+        "optimizer_learn_rate": 0.001,
+        "training_dropout": 0.1,
+        "training_accumulate_gradient": 3,
+        "training_patience": 1600,
+        "training_max_epochs": 30,
+        "training_max_steps": 20000,
+        "training_eval_frequency": 200,
+        "batch_size_start": 100,
+        "batch_size_stop": 1000,
+        "batch_size_compound": 1.001,
+        "batcher_tolerance": 0.2,
+    }
 
-    # Store scores and hyperparameters for the all models
-    all_scores = []
+    # Track the best score and hyperparameters
+    best_score = 0
+    best_hyperparameters = hyperparameters.copy()
 
     # Create a new results file if it does not exist
     if not RESULTS.exists():
@@ -242,15 +298,22 @@ def main():
         model_path = move_model_to_trained_dir(OUTPUT_DIR, model_name)
 
         # Save the scores and hyperparameters for the model
-        all_scores.append(
-            save_scores(model_path, model_name, training_time, scores, hyperparameters)
+        bisect.insort(
+            ALL_RESULTS,
+            save_scores(model_path, model_name, training_time, scores, hyperparameters),
+            key=lambda x: x["scores"]["ents_f"],
         )
 
-        hyperparameters = update_hyperparameters(hyperparameters)
+        # Check if the current model is the best one so far
+        current_f1_score = scores["ents_f"]
+        if current_f1_score > best_score:
+            best_score = current_f1_score
+            best_hyperparameters = hyperparameters.copy()
+
+        hyperparameters = update_hyperparameters(best_hyperparameters)
 
     # Highlight model with best score
-    all_scores.sort(key=lambda x: x["scores"]["ents_f"], reverse=True)
-    best = all_scores[0]
+    best = ALL_RESULTS[-1]
     with RESULTS.open("a", encoding="UTF-8") as f:
         f.write(
             f"\n*Best Model: [{best['name']}](./trained_models/{best['path']}) -> F1: {best['scores']['ents_f']}, Precision: {best['scores']['ents_p']}, Recall: {best['scores']['ents_r']}*\n"
