@@ -21,5 +21,6 @@ This table shows the performance of the model when splitting it with different r
 | [60-20-20](./trained_models/model-6807-60_20_20/)                           | 6807                | 70 min          | 0.58843  | 0.62021   | 0.55975 |
 | [60-20-20](./trained_models/model-6807-60_20_20/) (sklearn split test data) | 6807                | 70 min          | 0.71074  | 0.77246   | 0.65816 |
 | [80(70-30)-20 A](./trained_models/model-1000-80(70_30)_20-A/)               | 1000                | 14 min          | 0.75482  | 0.82036   | 0.69898 |
+| [80(70-30)-20 B](./trained_models/model-1000-80(70_30)_20-B/)               | 1000                | 11 min          | 0.61875  | 0.79839   | 0.5051  |
 
 _\* Approximate time taken to train on a mobile RTX 3070Ti_
