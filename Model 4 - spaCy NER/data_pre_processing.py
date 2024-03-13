@@ -24,14 +24,14 @@ def process_data(input_file: Path, output_folder: Path):
 
     random.shuffle(data)
     # Limit the number of documents for testing
-    data = data[:200]
+    # data = data[:1000]
 
     # Split the data into training, validation and test sets
-    train_split_index = int(len(data) * 0.7)
-    test_split_index = int(len(data) * 0.9)
+    train_split_index = int(len(data) * 0.6)
+    test_split_index = int(len(data) * 0.2)
     train_data = data[:train_split_index]
-    valid_data = data[train_split_index:test_split_index]
-    test_data = data[test_split_index:]
+    valid_data = data[train_split_index:-test_split_index]
+    test_data = data[-test_split_index:]
 
     # Process each document and add it to the appropriate DocBin
     for data, doc_bin in [
