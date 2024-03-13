@@ -3,6 +3,7 @@ import random
 from pathlib import Path
 
 import spacy
+from sklearn.model_selection import train_test_split
 from spacy.tokens import DocBin
 
 INPUT_FOLDER = Path(__file__).parent.parent / "raw_data"
@@ -22,16 +23,17 @@ def process_data(input_file: Path, output_folder: Path):
     with input_file.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
-    random.shuffle(data)
-    # Limit the number of documents for testing
-    # data = data[:1000]
+    # Split the data into train and test sets using sklearn
+    train_valid_data, test_data = train_test_split(
+        data[:1000], test_size=0.2, random_state=42
+    )
 
-    # Split the data into training, validation and test sets
-    train_split_index = int(len(data) * 0.6)
-    test_split_index = int(len(data) * 0.2)
-    train_data = data[:train_split_index]
-    valid_data = data[train_split_index:-test_split_index]
-    test_data = data[-test_split_index:]
+    random.shuffle(train_valid_data)
+
+    # Split the train data into training and validation sets
+    split_index = int(len(train_valid_data) * 0.7)
+    train_data = train_valid_data[:split_index]
+    valid_data = train_valid_data[split_index:]
 
     # Process each document and add it to the appropriate DocBin
     for data, doc_bin in [
@@ -105,5 +107,5 @@ def process_data(input_file: Path, output_folder: Path):
 
 
 if __name__ == "__main__":
-    random.seed(546)
+    random.seed(42)
     process_data(INPUT_FOLDER / "train.json", OUTPUT_FOLDER)
