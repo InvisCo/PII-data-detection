@@ -25,6 +25,8 @@ ALL_RESULTS = []
 
 # Maximum number of training sessions to run
 MAX_TRAINING_SESSIONS = 50
+# The rate at which to introduce randomness in the selection of the next hyperparameters
+EXPLORATION_RATE = 0.2
 # The factor of the total range by which to increment the hyperparameters
 HYPERPARAMETER_INCREMENT_FACTOR = 0.2
 # Floats are rounded to 4 decimal places to avoid floating point errors
@@ -102,7 +104,7 @@ def train_model(hyperparameters: dict[str, float | int]):
 
 
 def update_hyperparameters(
-    best_hyperparameters: dict[str, float | int], exploration_rate=0.1
+    best_hyperparameters: dict[str, float | int]
 ) -> dict[str, float | int]:
     """Updates the hyperparameters for the next training session, adjusting based on the best-performing set.
 
@@ -116,63 +118,105 @@ def update_hyperparameters(
     # Clone the original hyperparameters to avoid side-effects
     new_hyperparameters = best_hyperparameters.copy()
 
-    # Randomly decide whether to explore or exploit
-    if random.random() < exploration_rate:
+    # Randomly decide whether to explore or increment
+    if random.random() < EXPLORATION_RATE:
+        print("Exploring new hyperparameters...")
         # Explore: Randomly select a hyperparameter to adjust
         key = random.choice(HYPERPARAMETER_UPDATE_ORDER)
+        print(f"Exploring {key}...")
 
         lower_bound, upper_bound = HYPERPARAMETER_LIMITS[key]
-        current_value = new_hyperparameters[key]
 
-        # Randomly increment or decrement the hyperparameter by a value within the range
-        increment = (upper_bound - lower_bound) * HYPERPARAMETER_INCREMENT_FACTOR
+        new_value = update_value(new_hyperparameters[key], key, is_exploration=True)
 
-        # Ensure the new value is different from the current value
-        is_close = False
-        while not is_close:
-            new_value = current_value + random.uniform(-increment, increment)
-            new_value = round(
-                max(min(new_value, upper_bound), lower_bound), HYPERPARAMETER_PRECISION
-            )
-            is_close = math.isclose(new_value, current_value)
-
-        # If hyperparameter should be an integer, round to the nearest integer
-        if isinstance(current_value, int):
-            new_value = round(new_value)
+        # Ensure the new value is within the bounds
+        new_value = max(min(new_value, upper_bound), lower_bound)
 
         new_hyperparameters[key] = new_value
         print(f"Exploring {key}: {new_hyperparameters[key]}")
     else:
-        # Exploit: Sequentially adjust hyperparameters based on performance
+        # Increment: Sequentially adjust hyperparameters based on performance
+        print("Incrementing hyperparameters...")
         for key in HYPERPARAMETER_UPDATE_ORDER:
+            print(f"Incrementing {key}...")
             lower_bound, upper_bound = HYPERPARAMETER_LIMITS[key]
-            current_value = new_hyperparameters[key]
 
             # Randomly increment or decrement the hyperparameter
-            increment = (
-                (upper_bound - lower_bound)
-                * random.choice([1, -1])
-                * HYPERPARAMETER_INCREMENT_FACTOR
+            new_value = update_value(
+                new_hyperparameters[key], key, is_exploration=False
             )
-            new_value = round(current_value + increment, HYPERPARAMETER_PRECISION)
-
-            # If hyperparameter should be an integer, round to the nearest integer
-            if isinstance(current_value, int):
-                new_value = round(new_value)
+            print(f"New value: {new_value}")
 
             if new_value > upper_bound or new_value < lower_bound:
+                print(f"New value is out of bounds: [{lower_bound}, {upper_bound}]")
                 continue
 
             new_hyperparameters[key] = new_value
-            print(f"Exploiting {key}: {new_hyperparameters[key]}")
+            print(f"Incrementing {key}: {new_hyperparameters[key]}")
             break
 
     return new_hyperparameters
 
 
-@functools.cache
+def update_value(value: float | int, key: str, *, is_exploration: bool) -> float | int:
+    """Updates the value of a hyperparameter based on the key."""
+    print(f"Updating {key}...")
+    print(f"Current value: {value}")
+
+    lower_bound, upper_bound = HYPERPARAMETER_LIMITS[key]
+    if key in ["batch_size_compound", "optimizer_learn_rate"]:
+        is_logarithmic = True
+        # Logarithmic range
+        print("Logarithmic range")
+        increment = (
+            math.log10(upper_bound) - math.log10(lower_bound)
+        ) * HYPERPARAMETER_INCREMENT_FACTOR
+    else:
+        is_logarithmic = False
+        # Linear range
+        print("Linear range")
+        increment = (upper_bound - lower_bound) * HYPERPARAMETER_INCREMENT_FACTOR
+
+    if is_exploration:
+        increment *= 2
+        # Ensure the new value is different from the current value
+        is_close = True
+        while is_close:
+            # Randomly increment or decrement the hyperparameter by a value within the range
+            if is_logarithmic:
+                new_value = 10 ** (
+                    math.log10(value) + random.uniform(-increment, increment)
+                )
+            else:
+                new_value = value + random.uniform(-increment, increment)
+            print(f"New value: {new_value}")
+            is_close = math.isclose(new_value, value)
+            print(f"New value is close to current value: {is_close}")
+    else:
+        # Randomly increment or decrement the hyperparameter by the calculated value
+        if is_logarithmic:
+            new_value = 10 ** (math.log10(value) + increment * random.choice([1, -1]))
+        else:
+            new_value = value + increment * random.choice([1, -1])
+        print(f"New value: {new_value}")
+
+    # If hyperparameter should be an integer,
+    if isinstance(value, int):
+        # Round to the nearest integer
+        new_value = round(new_value)
+    else:
+        # Round to the specified precision
+        new_value = round(new_value, HYPERPARAMETER_PRECISION)
+
+    print(f"New value: {new_value}")
+    return new_value
+
+
 def has_hyperparameters_been_used(hyperparameters: dict[str, float | int]) -> bool:
     """Checks if the hyperparameters have been used in a previous training session."""
+    if not ALL_RESULTS:
+        return False
+
     return any(
         all(
             math.isclose(hyperparameters[k], v)
@@ -220,9 +264,9 @@ def save_scores(
     with RESULTS.open("a", encoding="UTF-8") as f:
         f.write(f"| [{name}](./{TRAINED_MODEL_DIR}/{model.name}/) ")
         f.write(f"| {training_time} ")
-        f.write(f"| {scores['ents_f']} ")
-        f.write(f"| {scores['ents_p']} ")
-        f.write(f"| {scores['ents_r']} ")
+        f.write(f"| {scores['ents_f']:0.5f} ")
+        f.write(f"| {scores['ents_p']:0.5f} ")
+        f.write(f"| {scores['ents_r']:0.5f} ")
         for key in HYPERPARAMETER_UPDATE_ORDER:
             f.write(f"| {hyperparameters[key]} ")
         f.write("|\n")
@@ -236,18 +280,16 @@ def save_scores(
 
 def main(session: str):
     # Default hyperparameters
-    hyperparameters = {
-        "optimizer_learn_rate": 0.001,
-        "training_dropout": 0.1,
-        "batch_size_start": 100,
-        "batch_size_stop": 1000,
-        "batch_size_compound": 1.001,
-        "batcher_tolerance": 0.2,
-    }
-
-    # Track the best score and hyperparameters
-    best_score = 0
-    best_hyperparameters = hyperparameters.copy()
+    hyperparameters = update_hyperparameters(
+        {
+            "optimizer_learn_rate": 0.0005,
+            "training_dropout": 0.1,
+            "batch_size_start": 100,
+            "batch_size_stop": 1000,
+            "batch_size_compound": 1.001,
+            "batcher_tolerance": 0.2,
+        }
+    )
 
     # Create a new results file if it does not exist
     if not RESULTS.exists():
@@ -296,13 +338,7 @@ def main(session: str):
             key=lambda x: x["scores"]["ents_f"],
         )
 
-        # Check if the current model is the best one so far
-        current_f1_score = scores["ents_f"]
-        if current_f1_score > best_score:
-            best_score = current_f1_score
-            best_hyperparameters = hyperparameters.copy()
-
-        hyperparameters = update_hyperparameters(best_hyperparameters)
+        hyperparameters = update_hyperparameters(hyperparameters)
         # If these hyperparameters have been used before, try again
         while has_hyperparameters_been_used(hyperparameters):
             hyperparameters = update_hyperparameters(hyperparameters)
