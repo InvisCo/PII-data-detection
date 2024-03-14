@@ -23,9 +23,11 @@ def process_data(input_file: Path, output_folder: Path):
     with input_file.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
+    random.shuffle(data)
+
     # Split the data into train and test sets using sklearn
     train_valid_data, test_data = train_test_split(
-        data[:1000], test_size=0.2, random_state=42
+        data[:2000], test_size=0.2, random_state=42
     )
 
     random.shuffle(train_valid_data)
