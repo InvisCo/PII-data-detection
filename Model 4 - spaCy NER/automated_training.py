@@ -1,3 +1,4 @@
+import argparse
 import bisect
 import functools
 import math
@@ -143,29 +144,43 @@ def update_hyperparameters(
         key = random.choice(HYPERPARAMETER_UPDATE_ORDER)
 
         lower_bound, upper_bound = HYPERPARAMETER_LIMITS[key]
+        current_value = new_hyperparameters[key]
+
         # Randomly increment or decrement the hyperparameter by a value within the range
         increment = (upper_bound - lower_bound) * HYPERPARAMETER_INCREMENT_FACTOR
-        new_value = new_hyperparameters[key] + random.uniform(-increment, increment)
 
-        new_hyperparameters[key] = round(
-            max(min(new_value, upper_bound), lower_bound),
-            HYPERPARAMETER_PRECISION,
-        )
+        # Ensure the new value is different from the current value
+        is_close = False
+        while not is_close:
+            new_value = current_value + random.uniform(-increment, increment)
+            new_value = round(
+                max(min(new_value, upper_bound), lower_bound), HYPERPARAMETER_PRECISION
+            )
+            is_close = math.isclose(new_value, current_value)
+
+        # If hyperparameter should be an integer, round to the nearest integer
+        if isinstance(current_value, int):
+            new_value = round(new_value)
+
+        new_hyperparameters[key] = new_value
         print(f"Exploring {key}: {new_hyperparameters[key]}")
     else:
         # Exploit: Sequentially adjust hyperparameters based on performance
         for key in HYPERPARAMETER_UPDATE_ORDER:
             lower_bound, upper_bound = HYPERPARAMETER_LIMITS[key]
+            current_value = new_hyperparameters[key]
+
             # Randomly increment or decrement the hyperparameter
             increment = (
                 (upper_bound - lower_bound)
                 * random.choice([1, -1])
                 * HYPERPARAMETER_INCREMENT_FACTOR
             )
-            new_value = round(
-                new_hyperparameters[key] + increment,
-                HYPERPARAMETER_PRECISION,
-            )
+            new_value = round(current_value + increment, HYPERPARAMETER_PRECISION)
+
+            # If hyperparameter should be an integer, round to the nearest integer
+            if isinstance(current_value, int):
+                new_value = round(new_value)
 
             if new_value > upper_bound or new_value < lower_bound:
                 continue
@@ -191,6 +206,7 @@ def check_if_hyperparameters_used(hyperparameters: dict[str, float | int]) -> bo
 
 def evaluate_model(model: Path, test_data: DocBin) -> dict[str, float]:
     # Load the trained model
+    print(f"Loading model from {model}...")
     nlp = spacy.load(model)
 
     # Load the test docs
@@ -224,7 +240,7 @@ def save_scores(
 ) -> dict[str, Any]:
     """Saves the scores and hyperparameters for the model to the results file, and returns the score and hyperparameters."""
     with RESULTS.open("a", encoding="UTF-8") as f:
-        f.write(f"| [{name}]({TRAINED_MODEL_DIR}{model.name}) ")
+        f.write(f"| [{name}](./{TRAINED_MODEL_DIR}/{model.name}/) ")
         f.write(f"| {training_time} ")
         f.write(f"| {scores['ents_f']} ")
         f.write(f"| {scores['ents_p']} ")
@@ -240,7 +256,7 @@ def save_scores(
     }
 
 
-def main():
+def main(session: str):
     # Default hyperparameters
     hyperparameters = {
         "optimizer_learn_rate": 0.001,
@@ -267,7 +283,7 @@ def main():
 
     # Add a new section to the results file
     with RESULTS.open("a", encoding="UTF-8") as f:
-        f.write("\n\n## Automated Results\n")
+        f.write(f"\n\n## Automated Results (Session ({session}))\n")
         col_headers = [
             "Model",
             "Training Time",
@@ -292,10 +308,13 @@ def main():
         print(f"Training model {model_name} complete in {training_time}.")
 
         # Evaluate the model against the test data and get the scores
-        scores = evaluate_model(OUTPUT_DIR, test_data)
+        output_model_path = OUTPUT_DIR / "model-best"
+        scores = evaluate_model(output_model_path, test_data)
 
         # Move the trained model to the trained_models directory
-        model_path = move_model_to_trained_dir(OUTPUT_DIR, model_name)
+        model_path = move_model_to_trained_dir(
+            output_model_path, f"{session}-{model_name}"
+        )
 
         # Save the scores and hyperparameters for the model
         bisect.insort(
@@ -316,11 +335,25 @@ def main():
     best = ALL_RESULTS[-1]
     with RESULTS.open("a", encoding="UTF-8") as f:
         f.write(
-            f"\n*Best Model: [{best['name']}](./trained_models/{best['path']}) -> F1: {best['scores']['ents_f']}, Precision: {best['scores']['ents_p']}, Recall: {best['scores']['ents_r']}*\n"
+            f"\n*Best Model: [{best['name']}](./{TRAINED_MODEL_DIR}/{best['path']}/) -> F1: {best['scores']['ents_f']}, Precision: {best['scores']['ents_p']}, Recall: {best['scores']['ents_r']}*\n"
         )
 
 
+def parse_session_arg():
+    parser = argparse.ArgumentParser(
+        description="Train a spaCy NER model and tune hyperparameters."
+    )
+    parser.add_argument(
+        "session",
+        type=str,
+        help="The name of the training session. This will be used to identify the models trained in this session.",
+    )
+    args = parser.parse_args()
+    return args.session
+
+
 if __name__ == "__main__":
+    session = parse_session_arg()
     print("Starting training...")
-    main()
+    main(session)
     print("Training complete.")
