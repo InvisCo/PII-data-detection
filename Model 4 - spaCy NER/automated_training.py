@@ -171,7 +171,7 @@ def update_hyperparameters(
 
 
 @functools.cache
-def check_if_hyperparameters_used(hyperparameters: dict[str, float | int]) -> bool:
+def has_hyperparameters_been_used(hyperparameters: dict[str, float | int]) -> bool:
     """Checks if the hyperparameters have been used in a previous training session."""
     return any(
         all(
@@ -303,6 +303,9 @@ def main(session: str):
             best_hyperparameters = hyperparameters.copy()
 
         hyperparameters = update_hyperparameters(best_hyperparameters)
+        # If these hyperparameters have been used before, try again
+        while has_hyperparameters_been_used(hyperparameters):
+            hyperparameters = update_hyperparameters(hyperparameters)
 
     # Highlight model with best score
     best = ALL_RESULTS[-1]
