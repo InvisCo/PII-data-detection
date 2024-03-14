@@ -33,11 +33,6 @@ HYPERPARAMETER_PRECISION = 4
 HYPERPARAMETER_LIMITS = {
     "optimizer_learn_rate": (0.0001, 0.01),
     "training_dropout": (0.1, 0.5),
-    "training_accumulate_gradient": (1, 5),
-    "training_patience": (1000, 2000),
-    "training_max_epochs": (10, 30),
-    "training_max_steps": (10000, 30000),
-    "training_eval_frequency": (100, 300),
     "batch_size_start": (50, 150),
     "batch_size_stop": (500, 1500),
     "batch_size_compound": (1.001, 1.01),
@@ -49,11 +44,6 @@ HYPERPARAMETER_UPDATE_ORDER = [
     "training_dropout",
     "batch_size_start",
     "batch_size_stop",
-    "training_accumulate_gradient",
-    "training_patience",
-    "training_max_epochs",
-    "training_max_steps",
-    "training_eval_frequency",
     "batch_size_compound",
     "batcher_tolerance",
 ]
@@ -91,11 +81,6 @@ def train_model(hyperparameters: dict[str, float | int]):
     Hyperparameters:
         optimizer_learn_rate (float): The learning rate controls how much to update the model in response to the estimated error each time the model weights are updated. Crucial for convergence speed and quality.
         training_dropout (float): The dropout rate controls the amount of regularization during training, preventing overfitting by randomly setting a fraction of input units to 0 at each update.
-        training_accumulate_gradient (int): Determines how many gradients to accumulate before updating model weights. Useful for effectively increasing batch size when limited by GPU memory.
-        training_patience (int): Number of evaluation steps with no improvement after which training will be stopped, for early stopping.
-        training_max_epochs (int): Sets the maximum number of training epochs. Limits training time and helps prevent overfitting.
-        training_max_steps (int): Maximum number of update steps. Another way to control the duration of training.
-        training_eval_frequency (int): How often to evaluate the model on the development set. Affects training speed and monitoring of model performance.
         batch_size_start (int): Initial batch size for the compounding batch size scheduler.
         batch_size_stop (int): Maximum batch size for the compounding batch size scheduler.
         batch_size_compound (float): Factor for compounding batch size increase per iteration, controlling how quickly the batch size grows.
@@ -108,13 +93,6 @@ def train_model(hyperparameters: dict[str, float | int]):
         overrides={
             "training.optimizer.learn_rate": hyperparameters["optimizer_learn_rate"],
             "training.dropout": hyperparameters["training_dropout"],
-            "training.accumulate_gradient": hyperparameters[
-                "training_accumulate_gradient"
-            ],
-            "training.patience": hyperparameters["training_patience"],
-            "training.max_epochs": hyperparameters["training_max_epochs"],
-            "training.max_steps": hyperparameters["training_max_steps"],
-            "training.eval_frequency": hyperparameters["training_eval_frequency"],
             "training.batcher.size.start": hyperparameters["batch_size_start"],
             "training.batcher.size.stop": hyperparameters["batch_size_stop"],
             "training.batcher.size.compound": hyperparameters["batch_size_compound"],
@@ -261,11 +239,6 @@ def main(session: str):
     hyperparameters = {
         "optimizer_learn_rate": 0.001,
         "training_dropout": 0.1,
-        "training_accumulate_gradient": 3,
-        "training_patience": 1600,
-        "training_max_epochs": 30,
-        "training_max_steps": 20000,
-        "training_eval_frequency": 200,
         "batch_size_start": 100,
         "batch_size_stop": 1000,
         "batch_size_compound": 1.001,
